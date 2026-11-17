@@ -1,0 +1,47 @@
+# =============================================================================
+# Python dependencies for this repository (install AFTER PyTorch).
+# Recommended: Python 3.9 + CUDA-enabled PyTorch 2.x.
+#
+# Example (CUDA 12.8 wheels; change the index URL for your CUDA version):
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+#   pip install -r requirements.txt
+#
+# CPU-only PyTorch also works for debugging, but open-world eval (Grounding DINO
+# + SAM2) and training are impractical without a GPU.
+# =============================================================================
+
+# --- numerics / IO ---
+numpy>=1.23,<2.0
+Pillow>=9.0
+opencv-python>=4.5
+PyYAML>=5.4
+six>=1.15
+
+# --- training utilities ---
+tqdm>=4.60
+easydict>=1.9
+tensorboard>=2.10
+
+# --- stereo backbone (LightStereo uses timm features) ---
+# Keep this pin; other timm versions may break pretrained backbone loading.
+timm==0.4.12
+
+# --- metrics / visualization / point cloud ---
+scikit-image>=0.19
+matplotlib>=3.5
+thop>=0.1.1
+open3d>=0.16
+
+# --- known-path YOLO-style head init & optional YOLOE unknown expert ---
+# Ultralytics 8.4+ is required for YOLOE text-prompt segmentation APIs.
+ultralytics>=8.4.0
+
+# --- default unknown expert: Grounding DINO + SAM2 via Hugging Face ---
+# First open-world run downloads:
+#   IDEA-Research/grounding-dino-base
+#   facebook/sam2.1-hiera-large
+# Set HF_HOME / TRANSFORMERS_CACHE if you need a custom cache directory.
+transformers>=4.45.0
+accelerate>=0.30.0
+safetensors>=0.4.0
+huggingface_hub>=0.23.0

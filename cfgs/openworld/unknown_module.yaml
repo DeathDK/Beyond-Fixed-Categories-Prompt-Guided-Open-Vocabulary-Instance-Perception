@@ -1,0 +1,20 @@
+UNKNOWN_MODULE:
+    PROVIDER: yoloe_seg
+    CHECKPOINT: yoloe-26x-seg.pt
+    # Text-prompt seg weights only; never use *-seg-pf.pt here.
+    TRAIN_ON_KITTI_UNKNOWN_LABELS: false
+    CACHE_TEXT_EMBEDDINGS: true
+    CONF_THRESHOLD: 0.25
+    IOU_THRESHOLD: 0.5
+    GEOMETRY_REFINE: true
+    GEOMETRY_MODE: g0  # g0 | g1
+    FUSION_MODE: calibrated_mask_nms
+    MASK_IOU_CONFLICT: 0.6
+    EDGE_BAND_PIXELS: 3
+    STOP_GRAD_DISPARITY: true
+
+EVAL:
+    USE_FULL_GT_FOR_METRICS_ONLY: true
+    MASK_IOU_THRESHOLDS: [0.50, 0.75]
+    REPORT_MACRO_AP: true
+    REPORT_MICRO_AP: true

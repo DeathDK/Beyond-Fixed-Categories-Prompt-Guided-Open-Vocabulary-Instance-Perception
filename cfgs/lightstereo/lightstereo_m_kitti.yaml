@@ -1,0 +1,131 @@
+DATA_CONFIG:
+    DATA_INFOS:
+        -   DATASET: KittiDataset
+            DATA_SPLIT: {
+                TRAINING: ./data/KITTI15/kitti15_train180_with_seglabel.txt,
+                EVALUATING: ./data/KITTI15/kitti15_val20_with_seglabel.txt,
+                TESTING: ./data/KITTI15/kitti15_test.txt
+            }
+            DATA_PATH: ./data/KITTI15
+            RETURN_RIGHT_DISP: true
+
+    DATA_TRANSFORM:
+        TRAINING:
+            - { NAME: StereoColorJitter, BRIGHTNESS: [ 0.7, 1.3 ], CONTRAST: [ 0.7, 1.3 ], SATURATION: [ 0.7, 1.3 ], HUE: 0.3, ASYMMETRIC_PROB: 0 }
+            - { NAME: RandomErase, PROB: 0.5, MAX_TIME: 2, BOUNDS: [ 50, 100 ] }
+            - { NAME: RandomSparseScale, SIZE: [ 320, 736 ], MIN_SCALE: 0.2, MAX_SCALE: 0.5, SCALE_PROB: 0.8 }
+            - { NAME: RandomCrop, SIZE: [ 320, 736 ] }
+            - { NAME: TransposeImage }
+            - { NAME: ToTensor }
+            - { NAME: NormalizeImage, MEAN: [ 0.485, 0.456, 0.406 ], STD: [ 0.229, 0.224, 0.225 ] }
+        EVALUATING:
+            - { NAME: RightTopPad, SIZE: [ 384, 1248 ] }
+            - { NAME: TransposeImage }
+            - { NAME: ToTensor }
+            - { NAME: NormalizeImage, MEAN: [ 0.485, 0.456, 0.406 ], STD: [ 0.229, 0.224, 0.225 ] }
+
+MODEL:
+    NAME: LightStereo
+    DETECTION_ENABLED: True
+    NUM_CLASSES: 5  # YOLO foreground IDs 0-4; annotation IDs remain 1-5
+    ANCHOR_RATIOS: [[1.5,1.2], [2.0,1.6], ...]  # full anchor ratio list
+    MAX_DISP: 192
+    EXPANSE_RATIO: 4
+    AGGREGATION_BLOCKS: [ 4, 8, 16 ]
+    LEFT_ATT: true
+    LOSS_BALANCING: uncertainty
+    LOSS_WEIGHTS: [1.0, 1.0]
+    EDGE_LOSS_WEIGHT: 0.05
+    EDGE_LOSS_START_EPOCH: 10
+    EDGE_LOSS_WARMUP_EPOCHS: 10
+    FIND_UNUSED_PARAMETERS: false
+    CKPT: -1
+    PRETRAINED_MODEL: "testdata/m.ckpt" # The path of checkpoint trained with the Sceneflow dataset.
+    YOLO_PRETRAINED_MODEL: "myyolo.pt"
+    ADAPTER_PRETRAINED_MODEL:
+    #PRETRAINED_MODEL: "seg.pth"
+
+OPTIMIZATION:
+    FREEZE_BN: false
+    SYNC_BN: true
+    AMP: false
+    BATCH_SIZE_PER_GPU: 5
+    NUM_EPOCHS: 300
+
+    OPTIMIZER:
+        NAME: AdamW
+        LR: &lr 0.0002
+        WEIGHT_DECAY: 5.0e-05
+        EPS: 1.0e-08
+        MIN_LR: 1.0e-06
+        LR_MULTIPLIERS:
+            backbone: 0.1
+            projection: 1.0
+            head_neck: 0.25
+            head_box: 0.5
+            head_class: 3.0
+            head_mask: 0.5
+            cost_agg: 0.5
+            refine: 0.5
+            seg_post: 1.0
+            default: 1.0
+
+    SCHEDULER:
+        WARMUP_EPOCHS: 5
+        # NAME: lr_lambdas
+        # MAX_LR: *lr
+        # PCT_START: 0.01
+        ON_EPOCH: True
+
+    CLIP_GRAD:
+        TYPE: value
+        CLIP_VALUE: 0.1
+
+    # OPTIMIZER:
+    #     NAME: AdamW
+    #     LR: &lr 0.02
+    #     WEIGHT_DECAY: 1.0e-05
+    #     EPS: 1.0e-08
+
+    # SCHEDULER:
+    #     NAME: MultiStepLR
+    #     milestones: [10, 50]
+    #     GAMMA: 0.1 
+    #     ON_EPOCH: True
+
+    # CLIP_GRAD:
+    #     TYPE: value
+    #     CLIP_VALUE: 0.1
+
+    # OPTIMIZER:
+    #     NAME: AdamW
+    #     LR: 0.00005  
+    #     WEIGHT_DECAY: 1.0e-05
+
+    # SCHEDULER:
+    #     NAME: CosineAnnealingLR  
+    #     T_max: 100
+    #     eta_min: 0.000001  
+    #     ON_EPOCH: True
+
+    # CLIP_GRAD:
+    #     TYPE: value
+    #     CLIP_VALUE: 0.1
+
+EVALUATOR:
+    BATCH_SIZE_PER_GPU: 1
+    MAX_DISP: 192
+    METRIC:
+        - d1_all
+        - epe
+        - thres_1
+        - thres_2
+        - thres_3
+
+TRAINER:
+    EVAL_INTERVAL: 50
+    CKPT_SAVE_INTERVAL: 50
+    MAX_CKPT_SAVE_NUM: 100
+    LOGGER_ITER_INTERVAL: 10
+    TRAIN_VISUALIZATION: True
+    EVAL_VISUALIZATION: True

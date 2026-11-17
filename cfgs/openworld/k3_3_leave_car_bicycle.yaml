@@ -1,0 +1,131 @@
+# Open-world leave-out config: K3-3
+# Known (K=3): ['Truck', 'Bus', 'Person']
+# Left-out / YOLOE prompts: ['Car', 'Bicycle']
+# Train this model once; test with frozen yoloe-26x-seg.pt (no YOLOE training).
+
+DATA_CONFIG:
+    DATA_INFOS:
+        -   DATASET: KittiDataset
+            DATA_SPLIT: {
+                TRAINING: ./data/KITTI15/kitti15_train180_with_seglabel.txt,
+                EVALUATING: ./data/KITTI15/kitti15_val20_with_seglabel.txt,
+                TESTING: ./data/KITTI15/kitti15_test.txt
+            }
+            DATA_PATH: ./data/KITTI15
+            RETURN_RIGHT_DISP: true
+            KNOWN_CLASSES: [Truck, Bus, Person]
+
+    DATA_TRANSFORM:
+        TRAINING:
+            - { NAME: StereoColorJitter, BRIGHTNESS: [ 0.7, 1.3 ], CONTRAST: [ 0.7, 1.3 ], SATURATION: [ 0.7, 1.3 ], HUE: 0.3, ASYMMETRIC_PROB: 0 }
+            - { NAME: RandomErase, PROB: 0.5, MAX_TIME: 2, BOUNDS: [ 50, 100 ] }
+            - { NAME: RandomSparseScale, SIZE: [ 320, 736 ], MIN_SCALE: 0.2, MAX_SCALE: 0.5, SCALE_PROB: 0.8 }
+            - { NAME: RandomCrop, SIZE: [ 320, 736 ] }
+            - { NAME: TransposeImage }
+            - { NAME: ToTensor }
+            - { NAME: NormalizeImage, MEAN: [ 0.485, 0.456, 0.406 ], STD: [ 0.229, 0.224, 0.225 ] }
+        EVALUATING:
+            - { NAME: RightTopPad, SIZE: [ 384, 1248 ] }
+            - { NAME: TransposeImage }
+            - { NAME: ToTensor }
+            - { NAME: NormalizeImage, MEAN: [ 0.485, 0.456, 0.406 ], STD: [ 0.229, 0.224, 0.225 ] }
+
+    CLASS_AWARE_SAMPLING:
+        ENABLED: false
+        REPEAT_THRESHOLD: 0.25
+        MAX_REPEAT_FACTOR: 3.0
+        MAX_EXTRA_FRACTION: 0.10
+        SEED: 0
+
+MODEL:
+    NAME: LightStereo
+    DETECTION_ENABLED: True
+    NUM_CLASSES: 3
+    OPENWORLD_SPLIT: K3-3
+    KNOWN_CLASSES: [Truck, Bus, Person]
+    UNKNOWN_PROMPTS: [car, bicycle]
+    ANCHOR_RATIOS: [[1.5,1.2], [2.0,1.6], ...]
+    MAX_DISP: 192
+    EXPANSE_RATIO: 4
+    AGGREGATION_BLOCKS: [ 1, 2, 4 ]
+    LEFT_ATT: true
+    LOSS_BALANCING: uncertainty
+    LOSS_WEIGHTS: [1.0, 1.0]
+    EDGE_LOSS_WEIGHT: 0.05
+    EDGE_LOSS_START_EPOCH: 10
+    EDGE_LOSS_WARMUP_EPOCHS: 10
+    FIND_UNUSED_PARAMETERS: false
+    CKPT: -1
+    # F5 fine-tune init: copy your trained F5 checkpoint to this path (do NOT train into it).
+    PRETRAINED_MODEL: "pretrained/f5_checkpoint_best.pth"
+    YOLO_PRETRAINED_MODEL:
+    ADAPTER_PRETRAINED_MODEL:
+    YOLO_LOAD_CLASS_HEAD: false
+    F5_INIT:
+        ENABLED: true
+        SOURCE_CLASSES: [Car, Truck, Bus, Bicycle, Person]
+        # remap: copy F5 channels for remaining known classes; reset: random class head
+        CLASS_HEAD_MODE: remap
+
+OPTIMIZATION:
+    FREEZE_BN: false
+    SYNC_BN: true
+    AMP: false
+    BATCH_SIZE_PER_GPU: 8
+    NUM_EPOCHS: 200
+    EMA:
+        ENABLED: true
+        DECAY: 0.99
+        TAU: 200.0
+    OPTIMIZER:
+        NAME: AdamW
+        LR: 0.0002
+        WEIGHT_DECAY: 5.0e-05
+        EPS: 1.0e-08
+        MIN_LR: 1.0e-06
+        LR_MULTIPLIERS:
+            backbone: 0.1
+            projection: 1.0
+            head_neck: 0.25
+            head_box: 0.5
+            head_class: 3.0
+            head_mask: 0.5
+            cost_agg: 0.5
+            refine: 0.5
+            seg_post: 1.0
+            default: 1.0
+    SCHEDULER:
+        WARMUP_EPOCHS: 5
+        ON_EPOCH: True
+    CLIP_GRAD:
+        TYPE: value
+        CLIP_VALUE: 0.1
+
+EVALUATOR:
+    BATCH_SIZE_PER_GPU: 1
+    MAX_DISP: 192
+    METRIC:
+        - d1_all
+        - epe
+        - thres_1
+        - thres_2
+        - thres_3
+    # Known-only mask AP during val (mAP = class-mean, w_mAP = pooled/micro)
+    SEG_AP: true
+    SEG_AP_CONF: 0.001
+    SEG_AP_PAD_HW: [384, 1248]
+
+TRAINER:
+    EVAL_INTERVAL: 5
+    # Independent bests: epe and w_mAP each save their own file when that metric improves.
+    BEST_METRIC: epe
+    BEST_HIGHER_IS_BETTER: false
+    BEST_METRICS:
+        - {NAME: epe, HIGHER_IS_BETTER: false, FILE: checkpoint_best_epe.pth}
+        - {NAME: d1_all, HIGHER_IS_BETTER: false, FILE: checkpoint_best_d1_all.pth}
+        - {NAME: mAP, HIGHER_IS_BETTER: true, FILE: checkpoint_best_mAP.pth}
+        - {NAME: w_mAP, HIGHER_IS_BETTER: true, FILE: checkpoint_best_w_mAP.pth}
+    SAVE_LAST_CKPT: true
+    LOGGER_ITER_INTERVAL: 10
+    TRAIN_VISUALIZATION: False
+    EVAL_VISUALIZATION: True
