@@ -56,7 +56,7 @@ If you meet any issue while reproducing the results, please contact: **zhouyiqia
 - default expert: **Grounding DINO** (boxes) + **SAM2** (masks),
 - optional ablation expert: frozen **YOLOE-seg** (`yoloe-26x-seg.pt`).
 
-**Post-process.** G0 geometry refine (disparity edge band) + calibrated mask fusion (`MASK_IOU_CONFLICT`, default `0.6`), then triangulation to instance point clouds.
+**Post-process.** G0 geometry refine (disparity edge band) + calibrated mask fusion (`--mask_iou_conflict 0.90` in paper experiments), then triangulation to instance point clouds.
 
 Full leave-out matrix: [`cfgs/openworld/TRAINING_MATRIX.md`](cfgs/openworld/TRAINING_MATRIX.md).  
 Open-world config notes: [`cfgs/openworld/README.md`](cfgs/openworld/README.md).
@@ -420,7 +420,17 @@ eval_output/best_suite/<run>/best_suite_report.json
 
 Inspect `final_report` for `epe`, `d1_all`, `mAP`, `w_mAP`.
 
-### 9.2 Open-world own-best suite (paper default)
+### 9.2 Open-world own-best suite (paper setting)
+
+Use the thresholds reported in the paper. These match the CLI defaults of
+`tools/eval_openworld_best_suite.py` and `tools/infer_openworld.py`:
+
+| Parameter | Paper / reproduce value | Notes |
+|-----------|-------------------------|--------|
+| Grounding DINO `--box_threshold` | `0.10` | not `0.25` |
+| Grounding DINO `--text_threshold` | `0.10` | not `0.20` |
+| Fusion `--mask_iou_conflict` | `0.90` | not the `0.6` placeholder in `unknown_module.yaml` |
+| G0 `--g0_edge_band` | `3` | pixels |
 
 ```bash
 python tools/eval_openworld_best_suite.py \
@@ -429,10 +439,16 @@ python tools/eval_openworld_best_suite.py \
   --split K4-2 \
   --unknown_expert gdino_sam2 \
   --known_conf 0.001 \
-  --box_threshold 0.25 \
-  --text_threshold 0.20 \
+  --box_threshold 0.10 \
+  --text_threshold 0.10 \
+  --mask_iou_conflict 0.90 \
   --g0_edge_band 3
 ```
+
+`cfgs/openworld/unknown_module.yaml` keeps `MASK_IOU_CONFLICT: 0.6` only as a
+module-template default. **Paper tables / open-world eval are reproduced with
+`--mask_iou_conflict 0.90` on the CLI** (which overrides that YAML field).
+Do not rely on `unknown_module.yaml` alone when reproducing reported numbers.
 
 Main unknown metrics:
 
@@ -474,12 +490,17 @@ python tools/eval_openworld_best_suite.py \
 
 ### 9.4 Single-checkpoint open-world eval
 
+`tools/eval_openworld.py` may use different argparse defaults than the paper;
+always pass the paper thresholds explicitly:
+
 ```bash
 python tools/eval_openworld.py \
   --cfg_file cfgs/openworld/k4_2_leave_truck.yaml \
   --pretrained_model output/.../ckpt/checkpoint_best_mAP.pth \
   --split K4-2 \
   --unknown_expert gdino_sam2 \
+  --box_threshold 0.10 \
+  --text_threshold 0.10 \
   --list_file ./data/KITTI15/kitti15_val20_with_seglabel.txt
 ```
 
@@ -511,8 +532,9 @@ python tools/infer_openworld.py \
   --split K4-2 \
   --unknown_expert gdino_sam2 \
   --known_conf 0.001 \
-  --box_threshold 0.25 \
-  --text_threshold 0.20 \
+  --box_threshold 0.10 \
+  --text_threshold 0.10 \
+  --mask_iou_conflict 0.90 \
   --output_dir ./openworld_output
 ```
 
@@ -569,12 +591,12 @@ These scripts report parameters, FLOPs (where measurable), and latency. SAM2 FLO
 
 ## 12. Ablations
 
-Unknown-module defaults live in [`cfgs/openworld/unknown_module.yaml`](cfgs/openworld/unknown_module.yaml):
+Unknown-module template: [`cfgs/openworld/unknown_module.yaml`](cfgs/openworld/unknown_module.yaml)
+(`GEOMETRY_MODE: g0`, `FUSION_MODE: calibrated_mask_nms`, `EDGE_BAND_PIXELS: 3`).
 
-- `GEOMETRY_MODE: g0`
-- `FUSION_MODE: calibrated_mask_nms`
-- `MASK_IOU_CONFLICT: 0.6`
-- `EDGE_BAND_PIXELS: 3`
+For **paper reproduction**, always pass CLI thresholds explicitly (see §9.2):
+`--box_threshold 0.10 --text_threshold 0.10 --mask_iou_conflict 0.90`.
+The YAML field `MASK_IOU_CONFLICT: 0.6` is not the paper setting.
 
 Contrastive modes on one stereo pair:
 
@@ -593,15 +615,15 @@ Fusion IoU / G0 edge-band sweeps can be done by changing CLI flags on `eval_open
 
 ## 13. Important hyperparameters
 
-| Item | Default (paper setting) | Where |
-|------|-------------------------|--------|
+| Item | Paper setting | Where to set for reproduction |
+|------|---------------|-------------------------------|
 | Train crop | `320 × 736` | YAML `DATA_TRANSFORM` |
 | Eval pad | `384 × 1248` | YAML `DATA_TRANSFORM` / `SEG_AP_PAD_HW` |
 | Max disparity | `192` | YAML `MODEL.MAX_DISP` |
 | Known decode conf (eval) | `0.001` | `--known_conf` / `SEG_AP_CONF` |
-| GDINO box / text thr | `0.25` / `0.20` | eval CLI |
-| G0 edge band | `3` px | `--g0_edge_band` / `EDGE_BAND_PIXELS` |
-| Fusion mask IoU conflict | `0.6` | `unknown_module.yaml` |
+| GDINO box / text thr | `0.10` / `0.10` | `--box_threshold` / `--text_threshold` (CLI; suite defaults match paper) |
+| G0 edge band | `3` px | `--g0_edge_band` |
+| Fusion mask IoU conflict | `0.90` | `--mask_iou_conflict` (CLI; **not** the `0.6` in `unknown_module.yaml`) |
 | Epochs / batch | `200` / `8` | YAML `OPTIMIZATION` |
 | Val list | 20 frames | `kitti15_val20_with_seglabel.txt` |
 

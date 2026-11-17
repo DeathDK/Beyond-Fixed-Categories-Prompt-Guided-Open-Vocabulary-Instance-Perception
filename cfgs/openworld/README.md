@@ -79,9 +79,14 @@ python tools/eval_openworld_best_suite.py \
   --run_dir output/KittiDataset/LightStereo/k4_2_leave_truck/k4_2_from_f5 \
   --split K4-2 \
   --unknown_expert gdino_sam2 \
-  --known_conf 0.001 --box_threshold 0.25 --text_threshold 0.20 \
+  --known_conf 0.001 \
+  --box_threshold 0.10 --text_threshold 0.10 \
+  --mask_iou_conflict 0.90 \
   --g0_edge_band 3
 ```
+
+Paper setting: GDINO box/text `0.10`/`0.10`, fusion conflict IoU `0.90`
+(CLI overrides `unknown_module.yaml`, which still lists a `0.6` template default).
 
 Default unknown expert is **Grounding DINO + SAM2** (HF), then G0 + fusion.
 Optional legacy path: `--unknown_expert yoloe --yoloe_ckpt yoloe-26x-seg.pt`.
