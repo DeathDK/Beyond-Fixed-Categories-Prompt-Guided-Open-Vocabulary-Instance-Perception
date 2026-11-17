@@ -1,18 +1,18 @@
 #!/usr/bin/env python
-"""Open-world eval on all multi-best known ckpts; report own-best metrics.
+"""Open-world eval on selected known checkpoint(s).
 
-Same protocol as eval_best_suite.py, but with YOLOE+G0(+conflict) unknown branch:
-  1) Run eval_openworld on each of checkpoint_best_{epe,d1_all,mAP,w_mAP}.pth
-  2) Final report = best value of each open-world metric across those runs
+Paper tables: use one checkpoint for all metrics, e.g. --ckpt_tags best_mAP.
+Multiple tags are optional compare-only; do not mix them into one table row.
 
-Example:
+Example (paper):
   python tools/eval_openworld_best_suite.py \\
     --cfg_file cfgs/openworld/k4_2_leave_truck.yaml \\
     --run_dir output/KittiDataset/LightStereo/k4_2_leave_truck/k4_2_from_f5 \\
     --split K4-2 \\
-    --yoloe_ckpt yoloe-26x-seg.pt \\
-    --ckpt_tags best_epe \\
-    --known_conf 0.001 --yoloe_conf 0.15 --use_synonyms
+    --ckpt_tags best_mAP \\
+    --unknown_expert gdino_sam2 \\
+    --box_threshold 0.10 --text_threshold 0.10 \\
+    --mask_iou_conflict 0.90
 """
 
 from __future__ import annotations
@@ -85,8 +85,9 @@ def parse_args():
     p.add_argument(
         "--ckpt_tags",
         type=str,
-        default="",
-        help="Comma-separated tags to eval (e.g. best_epe). Empty = all four.",
+        default="best_mAP",
+        help="Comma-separated tags to eval (paper: best_mAP). "
+        "Empty string = all four files if present (compare-only).",
     )
     p.add_argument("--split", type=str, default="K4-2")
     p.add_argument("--data_root", type=str, default="./data/KITTI15")
@@ -645,7 +646,7 @@ def main():
 
     logger.info("")
     logger.info("=" * 60)
-    logger.info("FINAL OPEN-WORLD REPORT (own-best across selected ckpts)")
+    logger.info("FINAL OPEN-WORLD REPORT (from selected checkpoint tags)")
     logger.info("=" * 60)
     for metric, item in final_report.items():
         logger.info("  %-36s = %.6f  <- %s", metric, item["value"], item["source_ckpt"])

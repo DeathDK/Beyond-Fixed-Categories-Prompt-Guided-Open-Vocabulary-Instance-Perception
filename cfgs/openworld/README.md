@@ -53,31 +53,32 @@ python tools/train.py --cfg_file cfgs/openworld/f5.yaml --extra_tag f5_ref
 
 Cold start (legacy): set `PRETRAINED_MODEL: testdata/s.ckpt`, `YOLO_PRETRAINED_MODEL: myyolo.pt`, and `F5_INIT.ENABLED: false`.
 
-## Test known metrics on multi-best checkpoints
+## Checkpoint selection (paper tables)
 
-After training, evaluate **all** independent best ckpts. Final report takes
-**each metric's best value across those ckpts** (own-best suite):
+Training may save several `checkpoint_best_*.pth` files. For paper tables,
+**all metrics of a model come from the same checkpoint** (recommended:
+`checkpoint_best_mAP.pth`). Pass `--ckpt_tags best_mAP` so suite scripts do not
+mix results across different best-* files.
 
-- `epe`, `d1_all` — lower better
-- `mAP`, `w_mAP` — higher better
+## Test known metrics (single checkpoint)
 
 ```bash
 python tools/eval_best_suite.py \
   --cfg_file cfgs/openworld/k4_2_leave_truck.yaml \
-  --run_dir output/KittiDataset/LightStereo/k4_2_leave_truck/k4_2_from_f5
+  --run_dir output/KittiDataset/LightStereo/k4_2_leave_truck/k4_2_from_f5 \
+  --ckpt_tags best_mAP
 ```
 
-Report: `eval_output/best_suite/<run>/best_suite_report.json` → `final_report`.
+Report: `eval_output/best_suite/<run>/best_suite_report.json`.
 
-## Test open-world (GDINO+SAM2+G0) on the same four best ckpts
-
-Same own-best protocol with unknown branch enabled:
+## Test open-world (GDINO+SAM2+G0) on the same checkpoint
 
 ```bash
 python tools/eval_openworld_best_suite.py \
   --cfg_file cfgs/openworld/k4_2_leave_truck.yaml \
   --run_dir output/KittiDataset/LightStereo/k4_2_leave_truck/k4_2_from_f5 \
   --split K4-2 \
+  --ckpt_tags best_mAP \
   --unknown_expert gdino_sam2 \
   --known_conf 0.001 \
   --box_threshold 0.10 --text_threshold 0.10 \
@@ -90,11 +91,10 @@ Paper setting: GDINO box/text `0.10`/`0.10`, fusion conflict IoU `0.90`
 
 Default unknown expert is **Grounding DINO + SAM2** (HF), then G0 + fusion.
 Optional legacy path: `--unknown_expert yoloe --yoloe_ckpt yoloe-26x-seg.pt`.
-Fast ablation: add `--ckpt_tags best_epe`. Report also logs pre-fusion vs post-fusion `u_recall_*`.
+Report also logs pre-fusion vs post-fusion `u_recall_*`.
 
 Deps: `pip install 'transformers>=4.45' accelerate` (SAM2 via transformers; no separate `sam2` package needed on Python 3.9).
 
-Report: `eval_output/openworld_best_suite/<run>/openworld_best_suite_report.json` → `final_report`
-(known_mAP / full5_mAP / unknown recall / miou, each taken from whichever of the 4 ckpts is best).
+Report: `eval_output/openworld_best_suite/<run>/openworld_best_suite_report.json`
 
 Single-image debug still uses `tools/infer_openworld.py`.

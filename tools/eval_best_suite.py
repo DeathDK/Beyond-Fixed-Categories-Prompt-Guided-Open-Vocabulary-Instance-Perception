@@ -1,16 +1,15 @@
 #!/usr/bin/env python
-"""Evaluate all independent best checkpoints and report per-metric own-best.
+"""Evaluate selected best checkpoint(s) under a training run.
 
-Protocol (matches multi-best saving):
-  1) Run val on every available best ckpt (epe / d1_all / mAP / w_mAP).
-  2) Final report = for each metric, take the best value among those ckpts
-     (lower-better for epe/d1/thres; higher-better for mAP/w_mAP).
-  3) Also keep the full ckpt x metric matrix for transparency.
+Paper tables: pass --ckpt_tags best_mAP so every metric comes from the same
+weights (checkpoint_best_mAP.pth). Multiple tags are only for optional
+side-by-side comparison; do not mix them into one paper table row.
 
-Example:
+Example (paper):
   python tools/eval_best_suite.py \\
     --cfg_file cfgs/openworld/k4_2_leave_truck.yaml \\
-    --run_dir output/KittiDataset/LightStereo/k4_2_leave_truck/k4_2_from_f5
+    --run_dir output/KittiDataset/LightStereo/k4_2_leave_truck/k4_2_from_f5 \\
+    --ckpt_tags best_mAP
 """
 
 from __future__ import annotations
@@ -31,7 +30,6 @@ sys.path.insert(0, "./")
 from stereo.modeling.models.lightstereo.trainer import Trainer
 from stereo.utils import common_utils
 
-# Core four metrics the user tracks + extras computed in val.
 REPORT_METRICS = ("epe", "d1_all", "mAP", "w_mAP")
 LOWER_BETTER = {"epe", "d1_all", "thres_1", "thres_2", "thres_3"}
 
@@ -44,7 +42,7 @@ BEST_CKPT_SPECS: List[Tuple[str, str]] = [
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Evaluate multi-best checkpoint suite")
+    parser = argparse.ArgumentParser(description="Evaluate selected checkpoint(s)")
     parser.add_argument("--cfg_file", type=str, required=True)
     parser.add_argument(
         "--run_dir",
@@ -57,6 +55,13 @@ def parse_args():
         type=str,
         default=None,
         help="Optional explicit ckpt dir (default: <run_dir>/ckpt)",
+    )
+    parser.add_argument(
+        "--ckpt_tags",
+        type=str,
+        default="best_mAP",
+        help="Comma-separated tags to eval (default: best_mAP). "
+        "Empty string = all four files if present.",
     )
     parser.add_argument(
         "--checkpoint_state",
@@ -102,22 +107,45 @@ def _load_ckpt_into_model(model, ckpt_path: str, state_key: str, logger) -> None
     )
 
 
-def _discover_ckpts(ckpt_dir: str) -> List[Tuple[str, str]]:
+def _parse_tags(raw: str) -> List[str]:
+    text = str(raw).strip()
+    if not text:
+        return [tag for tag, _ in BEST_CKPT_SPECS]
+    return [t.strip() for t in text.split(",") if t.strip()]
+
+
+def _discover_ckpts(ckpt_dir: str, tags: List[str]) -> List[Tuple[str, str]]:
+    wanted = set(tags)
     found = []
     for tag, fname in BEST_CKPT_SPECS:
+        if tag not in wanted:
+            continue
         path = os.path.join(ckpt_dir, fname)
         if os.path.isfile(path):
             found.append((tag, path))
     return found
 
 
-def build_own_best_report(per_ckpt: Dict[str, Dict[str, float]]) -> Dict[str, dict]:
-    """For each metric, pick the best value across all evaluated ckpts."""
+def build_report_from_single_or_compare(per_ckpt: Dict[str, Dict[str, float]]) -> Dict[str, dict]:
+    """If one ckpt: use its metrics. If several: keep a compare matrix only."""
+    if len(per_ckpt) == 1:
+        tag, metrics = next(iter(per_ckpt.items()))
+        out = {}
+        for key, value in metrics.items():
+            if value is None or not math.isfinite(float(value)):
+                continue
+            out[key] = {
+                "value": float(value),
+                "source_ckpt": tag,
+                "higher_is_better": not _is_lower_better(key),
+            }
+        return out
+
+    # Multi-ckpt compare: still pick a readable summary, but source_ckpt is labeled.
     keys = set()
     for metrics in per_ckpt.values():
         keys.update(metrics.keys())
-
-    own_best = {}
+    summary = {}
     for key in sorted(keys):
         best_val = None
         best_tag = None
@@ -135,12 +163,13 @@ def build_own_best_report(per_ckpt: Dict[str, Dict[str, float]]) -> Dict[str, di
             if better:
                 best_val, best_tag = value, tag
         if best_val is not None:
-            own_best[key] = {
+            summary[key] = {
                 "value": best_val,
                 "source_ckpt": best_tag,
                 "higher_is_better": not _is_lower_better(key),
+                "note": "compare-only; not used for paper tables",
             }
-    return own_best
+    return summary
 
 
 def main():
@@ -157,10 +186,11 @@ def main():
     if not os.path.isdir(ckpt_dir):
         raise FileNotFoundError(f"ckpt dir not found: {ckpt_dir}")
 
-    found = _discover_ckpts(ckpt_dir)
+    tags = _parse_tags(args.ckpt_tags)
+    found = _discover_ckpts(ckpt_dir, tags)
     if not found:
         raise FileNotFoundError(
-            f"No best checkpoints under {ckpt_dir}. "
+            f"No matching checkpoints under {ckpt_dir} for tags={tags}. "
             "Expected checkpoint_best_epe/d1_all/mAP/w_mAP.pth"
         )
 
@@ -177,7 +207,7 @@ def main():
     logger = common_utils.create_logger(log_file, rank=0)
     for key, val in vars(args).items():
         logger.info("%-20s %s", key, val)
-    logger.info("Discovered checkpoints:")
+    logger.info("Selected checkpoints:")
     for tag, path in found:
         logger.info("  %-14s %s", tag, path)
 
@@ -198,25 +228,28 @@ def main():
         per_ckpt[tag] = {k: _to_float(v) for k, v in metrics.items()}
         logger.info("Results [%s]: %s", tag, per_ckpt[tag])
 
-    own_best = build_own_best_report(per_ckpt)
+    summary = build_report_from_single_or_compare(per_ckpt)
     final_report = {
-        metric: own_best[metric]
+        metric: summary[metric]
         for metric in REPORT_METRICS
-        if metric in own_best
+        if metric in summary
     }
 
+    single = len(per_ckpt) == 1
     report = {
         "protocol": (
-            "Evaluate all multi-best ckpts; final numbers take the best value "
-            "of each metric across ckpts (own-best suite report)."
+            "Single-checkpoint report (paper): all metrics from one selected ckpt."
+            if single
+            else "Multi-checkpoint compare only; paper tables should use one --ckpt_tags."
         ),
         "cfg_file": args.cfg_file,
         "run_dir": os.path.abspath(args.run_dir),
         "ckpt_dir": ckpt_dir,
+        "ckpt_tags": tags,
         "checkpoint_state": args.checkpoint_state,
         "per_checkpoint": per_ckpt,
         "final_report": final_report,
-        "own_best_all_metrics": own_best,
+        "summary_all_metrics": summary,
     }
 
     out_json = os.path.join(args.output_dir, "best_suite_report.json")
@@ -226,7 +259,10 @@ def main():
 
     logger.info("")
     logger.info("=" * 60)
-    logger.info("FINAL REPORT (own-best across 4 ckpts)")
+    if single:
+        logger.info("FINAL REPORT (single checkpoint: %s)", next(iter(per_ckpt)))
+    else:
+        logger.info("COMPARE SUMMARY (not for paper tables)")
     logger.info("=" * 60)
     for metric in REPORT_METRICS:
         if metric not in final_report:

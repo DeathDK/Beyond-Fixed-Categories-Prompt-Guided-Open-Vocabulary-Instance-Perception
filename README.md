@@ -90,8 +90,8 @@ Key scripts:
 | `tools/prepare_openworld.py` | filter YOLO labels for leave-out splits |
 | `tools/generate_openworld_cfgs.py` | regenerate leave-out YAMLs from `openworld/splits.py` |
 | `tools/train.py` | train F5 / leave-out known models |
-| `tools/eval_best_suite.py` | known-only own-best evaluation |
-| `tools/eval_openworld_best_suite.py` | open-world own-best evaluation |
+| `tools/eval_best_suite.py` | known-only eval helper (use one ckpt for paper tables) |
+| `tools/eval_openworld_best_suite.py` | open-world eval helper (use one ckpt for paper tables) |
 | `tools/eval_openworld.py` | single-checkpoint open-world eval |
 | `tools/infer_openworld.py` | single stereo pair open-world infer + point cloud |
 | `tools/measure_ours_efficiency.py` | known-path FLOPs / params / latency |
@@ -305,12 +305,11 @@ Copy-Item output\KittiDataset\LightStereo\f5\<extra_tag>\ckpt\checkpoint_best_mA
           pretrained\f5_checkpoint_best.pth
 ```
 
-Each training run saves four independent best files:
-
-- `checkpoint_best_epe.pth`
-- `checkpoint_best_d1_all.pth`
-- `checkpoint_best_mAP.pth`
-- `checkpoint_best_w_mAP.pth`
+During training, the logger may write several `checkpoint_best_*.pth` files
+(`epe`, `d1_all`, `mAP`, `w_mAP`) for convenience. **Paper tables use a single
+checkpoint per model:** report all metrics of that run from the same weights
+(recommended: `checkpoint_best_mAP.pth`). Do not mix numbers from different
+`checkpoint_best_*` files into one table row.
 
 ---
 
@@ -319,11 +318,14 @@ Each training run saves four independent best files:
 1. Prepare dataset + leave-out labels (`prepare_openworld.py`).
 2. Train F5 → copy to `pretrained/f5_checkpoint_best.pth`.
 3. Train each leave-out config (`k4_*` … `k1_*`), 30 models.
-4. Known metrics: `eval_best_suite.py` (own-best across the four ckpts).
-5. Open-world metrics: `eval_openworld_best_suite.py` with `--unknown_expert gdino_sam2` (default paper setting).
+4. Known metrics: evaluate **one** selected checkpoint (see §9.1).
+5. Open-world metrics: same checkpoint + `--unknown_expert gdino_sam2` (paper setting in §9.2).
 6. Optional: YOLOE expert, G0/fusion ablations, efficiency scripts.
 
-**Own-best suite.** For each metric name, the reported number is the best value among the four saved best checkpoints (lower-is-better for `epe` / `d1_all`, higher-is-better for mAP / recall / mIoU). This avoids picking a single checkpoint for every metric.
+**Checkpoint rule (paper).** All metrics reported for a given model / leave-out
+split come from **the same** checkpoint file. Default choice:
+`ckpt/checkpoint_best_mAP.pth` (pass `--ckpt_tags best_mAP` to the suite scripts,
+or `--pretrained_model .../checkpoint_best_mAP.pth` to single-ckpt eval).
 
 Split name in CLI (e.g. `--split K4-2`) must match `OPENWORLD_SPLIT` in the YAML and the matrix in `TRAINING_MATRIX.md`.
 
@@ -404,12 +406,16 @@ python tools/generate_openworld_cfgs.py
 
 ## 9. Evaluation
 
-### 9.1 Known-only own-best suite
+### 9.1 Known-only evaluation (single checkpoint)
+
+Paper reporting uses **one** checkpoint. Restrict the suite script with
+`--ckpt_tags best_mAP` so every metric comes from `checkpoint_best_mAP.pth`:
 
 ```bash
 python tools/eval_best_suite.py \
   --cfg_file cfgs/openworld/k4_2_leave_truck.yaml \
-  --run_dir output/KittiDataset/LightStereo/k4_2_leave_truck/k4_2_from_f5
+  --run_dir output/KittiDataset/LightStereo/k4_2_leave_truck/k4_2_from_f5 \
+  --ckpt_tags best_mAP
 ```
 
 Report JSON:
@@ -418,9 +424,9 @@ Report JSON:
 eval_output/best_suite/<run>/best_suite_report.json
 ```
 
-Inspect `final_report` for `epe`, `d1_all`, `mAP`, `w_mAP`.
+Inspect the metrics for that single run (`epe`, `d1_all`, `mAP`, `w_mAP`).
 
-### 9.2 Open-world own-best suite (paper setting)
+### 9.2 Open-world evaluation (paper setting, same checkpoint)
 
 Use the thresholds reported in the paper. These match the CLI defaults of
 `tools/eval_openworld_best_suite.py` and `tools/infer_openworld.py`:
@@ -431,12 +437,14 @@ Use the thresholds reported in the paper. These match the CLI defaults of
 | Grounding DINO `--text_threshold` | `0.10` | not `0.20` |
 | Fusion `--mask_iou_conflict` | `0.90` | not the `0.6` placeholder in `unknown_module.yaml` |
 | G0 `--g0_edge_band` | `3` | pixels |
+| Checkpoint | `best_mAP` | same file for all metrics in the table row |
 
 ```bash
 python tools/eval_openworld_best_suite.py \
   --cfg_file cfgs/openworld/k4_2_leave_truck.yaml \
   --run_dir output/KittiDataset/LightStereo/k4_2_leave_truck/k4_2_from_f5 \
   --split K4-2 \
+  --ckpt_tags best_mAP \
   --unknown_expert gdino_sam2 \
   --known_conf 0.001 \
   --box_threshold 0.10 \
@@ -450,30 +458,19 @@ module-template default. **Paper tables / open-world eval are reproduced with
 `--mask_iou_conflict 0.90` on the CLI** (which overrides that YAML field).
 Do not rely on `unknown_module.yaml` alone when reproducing reported numbers.
 
-Main unknown metrics:
+Main unknown metrics (all from the same `best_mAP` checkpoint):
 
 - `u_recall_micro`
 - `u_recall_macro_image`
 - `u_matched_miou_macro_image`
 - pre-fusion counterparts: `u_recall_*_pre_fusion`
 
-Also reports known / full-5 mask AP and stereo errors under the same own-best protocol.
+Also reports known / full-5 mask AP and stereo errors from that same checkpoint.
 
 Report JSON:
 
 ```text
 eval_output/openworld_best_suite/<run>/openworld_best_suite_report.json
-```
-
-Fast debug (one checkpoint tag only):
-
-```bash
-python tools/eval_openworld_best_suite.py \
-  --cfg_file cfgs/openworld/k4_2_leave_truck.yaml \
-  --run_dir output/KittiDataset/LightStereo/k4_2_leave_truck/k4_2_from_f5 \
-  --split K4-2 \
-  --unknown_expert gdino_sam2 \
-  --ckpt_tags best_epe
 ```
 
 ### 9.3 Optional YOLOE unknown expert
@@ -483,6 +480,7 @@ python tools/eval_openworld_best_suite.py \
   --cfg_file cfgs/openworld/k4_2_leave_truck.yaml \
   --run_dir output/KittiDataset/LightStereo/k4_2_leave_truck/k4_2_from_f5 \
   --split K4-2 \
+  --ckpt_tags best_mAP \
   --unknown_expert yoloe \
   --yoloe_ckpt yoloe-26x-seg.pt \
   --known_conf 0.001
@@ -643,7 +641,7 @@ Fusion IoU / G0 edge-band sweeps can be done by changing CLI flags on `eval_open
 | HF download fails | set `HF_HOME`, use mirror, or pre-download models offline |
 | YOLOE path fails | ensure `yoloe-26x-seg.pt` exists; use text-prompt `*-seg.pt`, not `*-seg-pf.pt` |
 | Windows long-path errors | enable long paths, or place checkpoints under a short path |
-| Metrics disagree with paper | confirm own-best suite (not a single ckpt), `--split` name, and GDINO thresholds |
+| Metrics disagree with paper | use one ckpt (`--ckpt_tags best_mAP`), matching `--split`, and GDINO/fusion thresholds in §9.2 |
 
 Label-leakage audit (optional):
 
